@@ -6,7 +6,7 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 
-@register("chouqudapi", "顾拾柒", "抽取大皮插件 (针对 NapCat QQBot 优化)", "1.0.2")
+@register("chouqudapi", "顾拾柒", "抽取大皮插件 (针对 NapCat QQBot 优化)", "1.0.3")
 class ChouQuDaPiPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -20,6 +20,19 @@ class ChouQuDaPiPlugin(Star):
             "灵魂荒原", "记忆坟场", "回声殿堂", "群星墓园", "众神黄昏"
         ]
         self.data = self._load_data()
+
+    async def _call_api(self, event: AstrMessageEvent, action: str, **params):
+        """兼容性 API 调用方法"""
+        try:
+            # 优先尝试标准关键字传参
+            return await event.bot.call_api(action, **params)
+        except TypeError as e:
+            if "positional arguments but" in str(e) or "takes 2 positional arguments" in str(e):
+                # 针对部分环境（如 aiocqhttp 适配器异常）尝试字典传参
+                return await event.bot.call_api(action, params)
+            raise e
+        except Exception as e:
+            raise e
 
     def _load_data(self):
         """从本地 JSON 加载数据"""
@@ -132,14 +145,20 @@ class ChouQuDaPiPlugin(Star):
             "time": now_time,
             "current": True
         })
+        
+        # 记录用户昵称，用于展示
+        if "_nicknames" not in self.data["extractions"][group_id]:
+            self.data["extractions"][group_id]["_nicknames"] = {}
+        self.data["extractions"][group_id]["_nicknames"][user_id] = event.get_sender_name()
+        
         self._save_data()
 
         # 修改群名片
         try:
-            await event.bot.call_api("set_group_member_card", 
-                                     group_id=int(group_id), 
-                                     user_id=int(user_id), 
-                                     card=new_card)
+            await self._call_api(event, "set_group_member_card", 
+                                 group_id=int(group_id), 
+                                 user_id=int(user_id), 
+                                 card=new_card)
             yield event.plain_result(f"恭喜！你抽取到了：{selected_dapi}。群名片已修改为：{new_card}")
         except Exception as e:
             logger.error(f"修改群名片失败: {e}")
@@ -187,7 +206,7 @@ class ChouQuDaPiPlugin(Star):
         # 尝试获取群成员列表以获取昵称
         member_nicknames = {}
         try:
-            members = await event.bot.call_api("get_group_member_list", group_id=int(group_id))
+            members = await self._call_api(event, "get_group_member_list", group_id=int(group_id))
             for m in members:
                 user_id_str = str(m.get("user_id"))
                 # 优先使用名片，其次是昵称
@@ -196,10 +215,15 @@ class ChouQuDaPiPlugin(Star):
             logger.error(f"获取群成员列表失败: {e}")
 
         result_lines = ["本群大皮成员列表："]
+        saved_nicknames = group_data.get("_nicknames", {})
+        
         for user_id, records in group_data.items():
+            if user_id == "_nicknames": continue # 跳过昵称存储字段
+            
             current_dapi = next((r for r in records if r.get("current")), None)
             if current_dapi:
-                display_name = member_nicknames.get(str(user_id), f"用户 {user_id}")
+                # 优先级：群成员列表 > 历史记录中的昵称 > 默认展示
+                display_name = member_nicknames.get(str(user_id)) or saved_nicknames.get(user_id) or "大皮成员"
                 result_lines.append(f"- {display_name}: 黄大皮{current_dapi['name']}分皮")
         
         yield event.plain_result("\n".join(result_lines))
