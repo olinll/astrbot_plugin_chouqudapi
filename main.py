@@ -6,7 +6,7 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 
-@register("chouqudapi", "顾拾柒", "抽取大皮插件 (针对 NapCat QQBot 优化)", "1.0.4")
+@register("chouqudapi", "顾拾柒", "抽取大皮插件 (针对 NapCat QQBot 优化)", "1.0.6")
 class ChouQuDaPiPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -22,22 +22,34 @@ class ChouQuDaPiPlugin(Star):
         self.data = self._load_data()
 
     async def _call_api(self, event: AstrMessageEvent, action: str, **params):
-        """兼容性 API 调用方法"""
+        """针对 NapCat/aiocqhttp 优化的 API 调用"""
         bot = event.bot
+        
         try:
-            # 1. 优先尝试直接通过 bot 对象调用方法 (AstrBot 推荐方式)
+            # 1. 针对 aiocqhttp (NapCat) 平台
+            if event.get_platform_name() == "aiocqhttp":
+                if hasattr(bot, "api") and hasattr(bot.api, "call_action"):
+                    # 根据报错 "takes 2 positional arguments but 3 were given"
+                    # 说明 call_action(self, action, **params) 在当前环境下可能被误解
+                    # 我们尝试最直接的属性调用，这在 aiocqhttp 中是支持的：bot.api.action(**params)
+                    try:
+                        method = getattr(bot.api, action)
+                        return await method(**params)
+                    except AttributeError:
+                        # 如果没有直接的方法，再尝试 call_action
+                        # 注意：为了避免 "3 were given"，我们将 params 作为一个 dict 传递
+                        # 如果 call_action 定义是 (self, action, params)，这就对了
+                        return await bot.api.call_action(action, params)
+
+            # 2. 尝试直接通过 bot 对象调用方法
             if hasattr(bot, action):
                 method = getattr(bot, action)
                 return await method(**params)
-            
-            # 2. 尝试使用 bot.api.call_action (针对某些适配器)
-            if hasattr(bot, "api") and hasattr(bot.api, "call_action"):
-                return await bot.api.call_action(action, **params)
 
             # 3. 尝试标准 call_api
             return await bot.call_api(action, **params)
         except TypeError as e:
-            # 4. 最后的回退：针对部分环境（如 aiocqhttp 适配器异常）尝试字典传参
+            # 4. 最后的回退
             if "positional arguments but" in str(e) or "takes 2 positional arguments" in str(e):
                 try:
                     return await bot.call_api(action, params)
