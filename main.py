@@ -180,7 +180,7 @@ class ChouQuDaPiPlugin(Star):
 
         # 修改群名片
         try:
-            await self._call_api(event, "set_group_member_card", 
+            await self._call_api(event, "set_group_card", 
                                  group_id=int(group_id), 
                                  user_id=int(user_id), 
                                  card=new_card)
