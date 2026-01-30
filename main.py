@@ -6,7 +6,7 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 
-@register("chouqudapi", "顾拾柒", "抽取大皮插件 (针对 NapCat QQBot 优化)", "1.0.3")
+@register("chouqudapi", "顾拾柒", "抽取大皮插件 (针对 NapCat QQBot 优化)", "1.0.4")
 class ChouQuDaPiPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -23,13 +23,26 @@ class ChouQuDaPiPlugin(Star):
 
     async def _call_api(self, event: AstrMessageEvent, action: str, **params):
         """兼容性 API 调用方法"""
+        bot = event.bot
         try:
-            # 优先尝试标准关键字传参
-            return await event.bot.call_api(action, **params)
+            # 1. 优先尝试直接通过 bot 对象调用方法 (AstrBot 推荐方式)
+            if hasattr(bot, action):
+                method = getattr(bot, action)
+                return await method(**params)
+            
+            # 2. 尝试使用 bot.api.call_action (针对某些适配器)
+            if hasattr(bot, "api") and hasattr(bot.api, "call_action"):
+                return await bot.api.call_action(action, **params)
+
+            # 3. 尝试标准 call_api
+            return await bot.call_api(action, **params)
         except TypeError as e:
+            # 4. 最后的回退：针对部分环境（如 aiocqhttp 适配器异常）尝试字典传参
             if "positional arguments but" in str(e) or "takes 2 positional arguments" in str(e):
-                # 针对部分环境（如 aiocqhttp 适配器异常）尝试字典传参
-                return await event.bot.call_api(action, params)
+                try:
+                    return await bot.call_api(action, params)
+                except:
+                    pass
             raise e
         except Exception as e:
             raise e
@@ -210,7 +223,9 @@ class ChouQuDaPiPlugin(Star):
             for m in members:
                 user_id_str = str(m.get("user_id"))
                 # 优先使用名片，其次是昵称
-                member_nicknames[user_id_str] = m.get("card") or m.get("nickname") or user_id_str
+                name = m.get("card") or m.get("nickname")
+                if name:
+                    member_nicknames[user_id_str] = name
         except Exception as e:
             logger.error(f"获取群成员列表失败: {e}")
 

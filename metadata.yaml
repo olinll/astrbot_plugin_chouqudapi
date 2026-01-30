@@ -1,6 +1,6 @@
 name: astrbot_plugin_chouqudapi
 display_name: 抽取大皮
 desc: 一个专门用于 NapCat QQBot 的大皮抽取并修改群名片插件。
-version: v1.0.3
+version: v1.0.4
 author: 顾拾柒
 repo: https://github.com/olinll/astrbot_plugin_chouqudapi
